@@ -1,0 +1,170 @@
+---
+title: "Schizophrenia_exploratory"
+author: "Dennis Khodasevich"
+date: "7/9/2020"
+output: html_document
+---
+
+Comparing High Dimensional Omics Data with Toxicological Variables: 
+Chemicals that mimic transcriptional changes in Schizophrenic Patients 
+
+
+# Introduction
+Schizophrenia is a severe mental disorder, about 1 percent of the population is diagnosed with, and about 1.2 % of Americans (3.2 million) have the disorder. Schizophrenia usually accompanies some combinations of positive symptoms such as hallucinations, delusions, disorganized speech, and thinking, agitation as well as some negative symptoms like affective flattening, alogia, and avolition. 
+
+People with schizophrenia require lifelong treatment. Early treatment may help get symptoms under control before serious complications develop and may help improve the long-term outlook. However, still, the cause of schizophrenia has not been clarified; thus, there is no cure of schizophrenia yet, and sometimes the medications to relieve the symptoms are only partially efficient.
+
+There has been debate about the cause of schizophrenia, whether it is a genetic disease or not. Indeed, many twin studies have suggested a significant heritability component with the risk of schizophrenia. However, these studies also indicated that genes contribute to the development of schizophrenia no more than 50 %. So, it suggests the existence of comparable impacts of environmental factors to the lesion of schizophrenia.  
+
+So, our group aims to find some environmental chemicals that may affect the incidence of schizophrenia. To be specific, our focus lies on cortical pyramidal neurons. Cortical pyramidal neurons form neuronal circuits in the cerebral cortex and are required to process sensory, planning, and executing functions. Our approach is firstly to find the gene expression pattern of schizophrenia patients through literature review and then apply this information to compare with the existing gene expression change data along with the dose of environmental chemicals. 
+
+```{r, echo=FALSE, include=FALSE}
+#Loading and cleaning data
+library(tidyverse)
+library(plotly)
+library(dplyr)
+library(Hmisc)
+library(reshape2)
+library(ggcorrplot)
+
+
+deep_dat = read_csv("DeepData.csv")
+
+superficial_dat = read_csv("SuperficialData.csv")
+
+superficial_sub = superficial_dat %>%
+   filter(!is.na(Gene.symbol))
+
+chemcompare_dat = read_csv("Pearson - Chemical Comparison.csv")
+
+comp<-chemcompare_dat$Gene
+comp<-tolower(comp)
+superficial_sub$Gene.symbol<-tolower(superficial_sub$Gene.symbol)
+#making all the letters in the gene names lowercase, not best practice but easier for comparison
+
+test<-subset(superficial_sub, Gene.symbol %in% comp)
+# 4040 genes in both datasets
+
+test<-test%>%
+  filter(P.Value<=0.05)
+#28 remaining genes
+
+#filter brandon data
+significant<-test$Gene.symbol
+chemcompare_dat$Gene<-tolower(chemcompare_dat$Gene)
+sig_pearson<-subset(chemcompare_dat, Gene %in% significant)
+sig_pearson$GWEIGHT<-NULL
+sig_pearson$GID<-NULL
+sig_pearson$NAME<-NULL
+
+#fix schizophrenia dataset
+test$Schizophrenia<-test$logFC
+test$Gene<-test$Gene.symbol
+test<-test%>%
+  select(Gene, Schizophrenia)
+
+#merge
+full_dat<-merge(test, sig_pearson, by = "Gene")
+
+full_dat<-full_dat%>%
+  arrange(desc(Schizophrenia))
+
+rownames(full_dat) <- full_dat[,1]
+
+full_dat$Gene<-NULL
+
+```
+
+# Methods/Results
+Data from Pearson et al. Identiﬁcation of chemicals that mimic transcriptional changes associated with autism, brain aging and neurodegeneration (2016) and data from Wu et al., Transcriptional profile of pyramidal neurons in chronic schizophrenia reveals lamina-specific dysfunction of neuronal immunity (2020) were used in this assignment. 
+
+Wu et al. measured transcriptional changes via GeneChip® Human Gene 1.0 ST Microarray in superficial and deep pyramidal neuron cells. The cells were harvested from post-mortem brain tissue from 12 human subjects diagnosed with schizophrenia and 12 control human subjects. The Wu et al dataset was downloaded via the GEO database. Neuronal cells were grouped manually into superficial and deep neuronal cells. In the paper, 134 significantly increased and 130 decreased genes in superficial pyramidal neurons, while 93 significantly increased and 101 decreased genes were found in deep pyramidal neurons. Due to their higher number of significant gene expression differences, we utilized the study’s superficial pyramidal neuronal cells. This provided a dataset of 21,488 genes and log2 transformed, zero-centered, normalized fold change data (logFC) for each gene. 
+
+Pearson et al.’s dataset identifies transcriptional changes in mouse neuronal cells due to 300 chemicals prioritized chemicals by ToxCast. It contains transcriptional change information, also in the form of logFC data, in 5,121 genes. 
+
+Using R, we found 4,040 genes in common between the two datasets. (note: 1,179 genes in Wu et al. had a difficult naming format, these were likely also in common). 
+
+Within the Schizophrenia dataset, genes were further filtered to only include genes differentially expressed with a p-value <= 0.05, which produced a dataset with 28 remaining genes. The Schizophrenia dataset was then merged with the Pearson et al chemical data, producing a single dataset containing expression data on 28 genes for 300 chemicals and schizophrenia.
+
+Using this dataset, we used Plotly to generate a heatmap comparing gene expression patterns between schizophrenia and the 300 chemicals.  
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+data <- as.matrix(full_dat)
+
+p <- plot_ly(x=colnames(data), 
+             y=rownames(data), 
+             z = data, 
+             colorscale = "RdBu",
+             type = "heatmap") %>%
+  layout(margin = list(l=301)) 
+p 
+```
+
+In order to determine which chemicals had similar gene expression patterns to schizophrenia, we used the Hmisc function rcorr to compare all 301 expression patterns to each other. This generates a large matrix, which is shown below. To ease visualization of patterns, comparisons with p-values greater than 0.05 were replaced with NAs. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+correl<-cor(full_dat)
+melted<-melt(correl)
+
+res2<-rcorr(as.matrix(full_dat))
+
+P = res2$P 
+
+# removing data points >0.05 p value
+P[P>0.05]=NA
+
+
+pval <- plot_ly(x=colnames(P), 
+             y=rownames(P), 
+             z = P, 
+             colorscale = "Greys",
+             type = "heatmap") %>%
+  layout(margin = list(l=120)) 
+pval
+
+```
+
+This correlation map shows 15 chemicals with expression signatures correlated with that of schizophrenia. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+Pa<-as.data.frame(P)
+
+schiz<-Pa%>%
+  select(Schizophrenia)
+schiz<-na.omit(schiz)
+
+schiz <-schiz %>%
+  arrange(Schizophrenia)
+
+```
+
+
+# Discussion
+The first heat map shows gene expression in regards to chemical exposure and schizophrenia, where red indicates up-regulation of a gene, and blue represents down-regulation.The heat map showed that across chemical exposures and schizophrenia there was a general alteration of down and up regulation for the clic3 gene. Where specifically schizophrenia showed down regulation. Down regulation in the ppm1m gene was a general pattern, with up-regulation in schizophrenia. Cnn1 showed a general downregulation pattern with prominent up regulation in some chemicals, and some up regulation in schizophrenia.
+
+Taking a closer look at these genes did not reveal known relationships with clic3 and pp1m in relation to schizophrenia.  However in one study focused on CCN1 expression in relation to the development of schizophrenia, phencyclidine (PCP) was administered acutely to mice and rats due to it being schizophreniamimetic. The study results showed a marked up-regulation of the neocortical expression of CNN1 at day 56 but not day 8, which is similar to the PCP adult type onset of schizophrenic symptoms. In the adult rat 5,10 and 20,mg/kg of PCP induced an increase in CNN1 gene transcripts.  These results showed that the CNN1 gene could be part of a molecular cascade associated with the age-dependent onset of schizophrenia after puberty (Ito, Takashi, et al).
+
+In the second heat map gene expression of the differing chemical exposures were compared to gene expression patterns in schizophrenia, ruling out p values of over 0.05. Taking a closer look at the data there were 15 chemicals of note that showed expression signatures correlated with schizophrenia. With cyazofamid,bentazone, zoxamide and thiacloprid showing the lowest p values (less than .013). The use of these chemicals reveals that Cyazofamid is a fungicide, used primarily on potatoes and tomatoes, bentazone a herbicide, zoxamide a fungicide used on grapes and tomatoes and thiacloprid an insecticide (Pubchem).
+
+From the correlation matrix, two chemicals with P-values of less than 0.01 were identified for correlating with changes in gene transcription similar to that of schizophrenia. These were Cyromazine which is a fungicide and Carbaryl [1-naphthyl N-methylcarbamate], and insecticide
+
+# Sources
+Xiaojun Wu, Rammohan Shukla, Khaled Alganem, et al. Transcriptional profile of pyramidal neurons in chronic schizophrenia reveals lamina-specific dysfunction of neuronal immunity. bioRxiv (2020). doi: https://doi.org/10.1101/2020.01.14.906214
+
+Pearson, B., Simon, J., McCoy, E. et al. Identification of chemicals that mimic transcriptional changes associated with autism, brain aging and neurodegeneration. Nat Commun 7, 11173 (2016). https://doi.org/10.1038/ncomms11173
+
+Ito, Takashi, et al. "Effects of Schizophrenomimetics on the Expression of the CCN1 (CYR 61) Gene Encoding a Matricellular Protein in the Infant and Adult Neocortex of the Mouse and Rat." The International Journal of Neuropsychopharmacology, vol. 10, no. 6, 2007, pp. 717-25. ProQuest, 
+
+National Center for Biotechnology Information. PubChem Database. Cyazofamid, CID=9862076, https://pubchem.ncbi.nlm.nih.gov/compound/Cyazofamid National
+Center for Biotechnology Information. PubChem Database. Bentazone, CID=2328, https://pubchem.ncbi.nlm.nih.gov/compound/Bentazone
+
+National Center for Biotechnology Information. PubChem Database. Zoxamide, CID=122087, https://pubchem.ncbi.nlm.nih.gov/compound/Zoxamide
+
+National Center for Biotechnology Information. PubChem Database. Thiacloprid, CID=115224, https://pubchem.ncbi.nlm.nih.gov/compound/Thiacloprid
+
+http://ctdbase.org/query.go?type=ixn&chemqt=equals&chem=&actionDegreeTypes=decreases&actionTypes=ANY&geneqt=equals&gene=name%3ABDNF&geneFormTypes=mRNA&pathwayqt=equals&pathway=&taxonqt=equals&taxon=&goqt=equals&go=&sort=chemNmSort&perPage=50&action=Search
+
+http://ctdbase.org/detail.go?type=disease&acc=MESH%3aD012559&view=gene
+
