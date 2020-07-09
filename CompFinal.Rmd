@@ -1,0 +1,217 @@
+---
+title: "CompFinal"
+author: "Dennis Khodasevich"
+date: "4/30/2020"
+output: 
+  html_document:
+  toc: true
+---
+
+Redoing Assignment 5
+
+Assignment 5: Make a data-driven argument for a chemical toxicant’s danger based on exposure.
+
+
+```{r, include=FALSE}
+library(tidyverse)
+library(plotly)
+library(readxl)
+library(haven)
+library(ggplot2)
+library(ggcorrplot)
+library(ggfortify)  
+library(GGally)
+library(Hmisc)
+library(corrplot)
+
+```
+
+I originally took data from the USGS and the EPA's RSL tables to compare production volumes of pesticides to toxicity parameters (Reference Dose) for the most used pesticides in the US.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+df<-read.csv("Pesticide_usage.csv")
+
+df<-df%>%
+  rename(
+    usage=usage.kg.year.,
+    RFD=RFD.mg.kg.day.
+  )
+
+use_rfd <- plot_ly(
+  df, x = ~usage, y = ~RFD,
+  # Hover text:
+  text = ~paste("Compound: ", COMPOUND),
+  title='Pesticide Usage (kg) vs RFD (mg/kg-day)'
+)
+use_rfd
+
+```
+Although this is interesting, I am more interested in comparing chemical toxicity to actual estimates of exposure. 
+
+
+# New Assignment
+Compare human exposure estimates to chemical toxicity parameters.
+Usng NHANES data I will compare exposure to several common organic compounds to toxicity estimates to determine if there is any relationship. 
+
+## Methods
+Using NHANES 2009-2010 lab data to estimate exposure.
+Downloaded files containing exposre data on Environmental Phenols, Pesticides, Phthalates, and PAHs. 
+Merged by ID number and cleaned up name systems. 
+Used Hmisc function rcorr to generate correlation between the chemicals, as well as the p-values. 
+Then searched ToxCast to acquire toxicity info on each of the chemicals. 
+Plotted available data to compare exposure with toxicity estimates (LOAEL).
+Plotly and ggplot were used for visualization.
+
+```{r, collapse=TRUE, message=FALSE, echo=FALSE, include=FALSE}
+# Environmental Phenols
+phenols <- read_xpt("EPH_F.XPT")
+# Pesticides
+pesticides <- read_xpt("PP_F.XPT")
+# Phthalates
+phthal <- read_xpt("PHTHTE_F.XPT")
+# PAHs
+PAH <- read_xpt("PAH_F.XPT")
+
+### Merge by SEQN
+dat <- merge(x=PAH, y=pesticides, by="SEQN", all = TRUE) #PAH + PEST
+dat1 <- merge(x=dat, y=phenols, by="SEQN", all = TRUE)   #PAH + PEST + PHENOL
+dat2 <- merge(x=dat1, y=phthal, by="SEQN", all = TRUE)   #PAH + PEST + PHENOL + PHTHAL
+
+dat2 <- dat2[ , !duplicated(colnames(dat2))]
+
+# Clean
+full<-dat2%>%
+  select(SEQN, URXP04, URXP03, URXP07, URXP01, URXP02, URXP05, URXP06, URXP10, URXP17,
+         URXOPP, URX1TB, URX3TB, URXDCB, URX14D,
+         URXBP3, URXBPH, URX4TO, URXTRS, URXBUP, URXEPB, URXMPB, URXPPB,
+         URXMZP, URXMIB, URXMBP, URXMCP, URXMEP, URXMHP, URXMHH, URXMOH, URXECP, 
+         URXCNP, URXMNP, URXCOP, URXMNM, URXMC1, URXMOP)
+
+full<-full%>%
+  rename("Monobenzyl phthalate" = URXMZP,
+         "Monoisobutyl phthalate" = URXMIB,
+         "Mono n butyl phthalate" = URXMBP, 
+         "Monocyclohexyl phthalate" = URXMCP, 
+         "Mono ethyl phthalate" = URXMEP, 
+         "Mono(2 ethylhexyl) phthalate" = URXMHP, 
+         "Mono(2 ethyl 5 hydroxyhexyl) phthalate" = URXMHH, 
+         "Mono(2 ethyl 5 oxohexyl) phthalate" = URXMOH, 
+         "Mono(2 ethyl 5 carboxypentyl) phthalate	" = URXECP, 
+         "Monocarboxynonyl phthalate" = URXCNP, 
+         "Monoisononyl phthalate" = URXMNP,
+         "Monocarboxyoctyl phthalate" = URXCOP, 
+         "Mono methyl phthalate" = URXMNM,
+         "Mono(3 carboxypropyl) phthalate" = URXMC1, 
+         "Mono n octyl phthalate" = URXMOP, 
+         "2 Hydroxyfluorene" = URXP04,
+         "3 Hydroxyfluorene" = URXP03,
+         "9 Hydroxyfluorene" = URXP17,
+         "1 Hydroxyphenanthrene" = URXP06,
+         "2 Hydroxyphenanthrene" = URXP07,
+         "3 Hydroxyphenanthrene" = URXP05,
+         "1 Hydroxypyrene" = URXP10,
+         "1 Hydroxynapthalene" = URXP01,
+         "2 Hydroxynapthalene" = URXP02,
+         "ortho Phenylphenol" = URXOPP,
+         "2,4,5 Trichlorophenol" = URX1TB,
+         "2,4,6 Trichlorophenol" = URX3TB,
+         "2,4 Dichlorophenol" = URXDCB,
+         "2,5 Dichlorophenol" = URX14D,
+         "Benzophenone 3" = URXBP3,
+         "Bisphenol A" = URXBPH,
+         "4 tert Octylphenol" = URX4TO,
+         "Triclosan" = URXTRS,
+         "Butyl paraben" = URXBUP,
+         "Ethyl paraben" = URXEPB,
+         "Methyl paraben" = URXMPB,
+         "n Propyl paraben" = URXPPB)
+df <- na.omit(full)
+
+rownames(df)<-df$SEQN
+df$SEQN<-NULL
+
+res2 <- rcorr(as.matrix(df))
+
+tox<-read_excel("CompFinal.xlsx")
+tox$cytotox<-tox$`Cytotox Limit`
+
+tox$cytotox<-as.numeric(tox$cytotox)
+
+df[nrow(df) + 1,]<-colMeans(df)
+dff<-tail(df, 1)
+
+test<-t(dff)
+test<-as.data.frame(test)
+test$MeanExposure<-test$`2737`
+test <- tibble::rownames_to_column(test, "Compound")
+testt<-merge(test,tox)
+```
+
+
+# Results/Discussion
+NHANES contains individual exposure data for 8 phenols, 5 pesticides, 15 phthalates, and 9 PAHs in 2819 indiviudals. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+data <- as.matrix(res2$r)
+p <- plot_ly(x=colnames(data), 
+             y=rownames(data), 
+             z = data, 
+             colorscale = "Reds",
+             type = "heatmap") %>%
+  layout(title = 'Correlation Map')
+p 
+```
+
+The highest correlation is found between chemicals in the same category. This makes sense as many of these chemicals tend to come from the same sources.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+dataa <- as.matrix(res2$P)
+
+dataa[dataa>0.00135135] <- NA
+
+pp <- plot_ly(x=colnames(dataa), 
+             y=rownames(dataa), 
+             z = dataa, 
+             colorscale = "Hot",
+             type = "heatmap") %>%
+  layout(title = 'Correlation Significance') 
+pp 
+```
+
+Plot showing the distribution of p-values for the correlation between chemicals.
+P-values greater than 0.00135 were replaced with NAs in order to better visualize the patterns. 
+
+## Toxicity vs Exposure
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+tox%>%
+  na.omit(cytotox) %>%
+  filter(cytotox<1000) %>% 
+  ggplot(aes(x=Compound, y=cytotox, color=Class)) +
+  geom_bar(stat="identity") + 
+  ggtitle("Cytotoxicity Limits by Compound") + 
+  theme(axis.text.x=element_text(angle=90,hjust=1)) +
+  ylab("Cytotoxicity Limit (uM)")
+
+```
+
+Toxicity data on these chemicals is very sparse. Most chemicals had no data.
+13 chemicals had listed cytotox limits.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+testt$LOAEL<-as.numeric(testt$LOAEL)
+
+testt%>%
+  na.omit(LOAEL) %>%
+  ggplot(aes(x=log(MeanExposure), y=LOAEL)) +
+  geom_point(alpha=0.7) + 
+  geom_smooth(method='lm') +
+  ggtitle("Exposure vs LOAEL") +
+  xlab("Ln of Mean Exposure (ng/L)") +
+  ylab("LOAEL (uM)")
+
+```
+
+Of those 13 chemicals, only 8 had lowest observable adverse effect levels listed. 
+However for those 8, there is a positive relationship between exposure and LOAEL.
+This has some positive implications, suggesting that the chemicals we are exposed to at the highest levels may not affect our health at lower exposures. This relationship is still very weak, and this analysis highlights the necessity of further studying these chemicals. 
+
